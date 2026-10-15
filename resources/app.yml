@@ -1,0 +1,35 @@
+resources:
+  apps:
+    budget_execution_app:
+      name: febar-budget-execution
+      description: >
+        Budget Execution & Financial Oversight: governed execution dashboard, expiring balances with ML lapse
+        forecasts, risk alerts with write-back, procurement pipeline and AI package initiation, quarterly review
+        sign-off, and Genie.
+      source_code_path: ../app
+      # Genie runs on behalf of the signed-in user so Unity Catalog row filters apply per person.
+      user_api_scopes:
+        - dashboards.genie
+      resources:
+        - name: lakebase
+          description: Operational store (synced gold tables + workflow write-back)
+          postgres:
+            branch: projects/${var.lakebase_project}/branches/production
+            database: ${var.lakebase_database}
+            permission: CAN_CONNECT_AND_CREATE
+        - name: genie
+          description: Budget Execution Genie space
+          genie_space:
+            name: Budget Execution - Ask the Data
+            space_id: ${var.genie_space_id}
+            permission: CAN_RUN
+        - name: llm
+          description: Foundation Model for procurement package drafting
+          serving_endpoint:
+            name: ${var.app_llm_endpoint}
+            permission: CAN_QUERY
+        - name: warehouse
+          description: SQL warehouse used by Genie
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE

@@ -1,0 +1,46 @@
+bundle:
+  name: febar-budget-execution
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog for every asset in the build
+    default: rachopra_catalog
+  schema:
+    description: Unity Catalog schema for every asset in the build
+    default: fe_bar
+  as_of_date:
+    description: Reporting date for point-in-time execution metrics
+    default: "2026-07-31"
+  warehouse_id:
+    description: SQL warehouse used by Genie, the metric view and the app
+    default: 5aa6f979abb6e2d1
+  llm_endpoint:
+    description: Foundation Model endpoint for batch ai_query briefings (must support batch inference)
+    default: databricks-claude-sonnet-4-6
+  app_llm_endpoint:
+    description: Foundation Model endpoint the app calls in real time to draft procurement packages
+    default: databricks-claude-sonnet-5-5
+  lakebase_project:
+    description: Lakebase Autoscaling project serving the app
+    default: fe-bar-budget
+  lakebase_database:
+    description: Lakebase database resource holding synced tables and workflow tables (created by notebook 05)
+    default: projects/fe-bar-budget/branches/production/databases/db-st2u-nybclwufhl
+  genie_space_id:
+    description: Genie space created by notebook 06
+    default: 01f1c89bee9a1ceb8ca7f0134bbea761
+
+sync:
+  include:
+    - app/frontend/dist/**
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      host: https://fevm-rachopra-cyber-demo.cloud.databricks.com
+      profile: fe-vm-rachopra-cyber-demo

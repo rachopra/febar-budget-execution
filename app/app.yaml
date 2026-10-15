@@ -1,0 +1,15 @@
+command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+env:
+  - name: LAKEBASE_ENDPOINT
+    value: projects/fe-bar-budget/branches/production/endpoints/primary
+  - name: PG_SCHEMA
+    value: fe_bar
+  - name: SERVING_ENDPOINT
+    valueFrom: llm
+  - name: GENIE_SPACE_ID
+    valueFrom: genie
+  # Demo setting: principals not listed in office_access_map get read-only agency-wide scope.
+  # Set to NONE to deny by default.
+  - name: DEFAULT_OFFICE_SCOPE
+    value: ALL

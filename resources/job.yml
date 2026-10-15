@@ -1,0 +1,77 @@
+resources:
+  jobs:
+    budget_execution_e2e:
+      name: febar-budget-execution-e2e
+      description: >
+        End-to-end budget execution build: governance foundations, raw landing, Spark Declarative
+        Pipeline (bronze/silver/gold), UC documentation and policies, lapse-risk ML, GenAI
+        briefings, Lakebase serving and the Genie space.
+      max_concurrent_runs: 1
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: schema
+          default: ${var.schema}
+        - name: as_of_date
+          default: ${var.as_of_date}
+      tasks:
+        - task_key: setup_governance
+          notebook_task:
+            notebook_path: ../src/notebooks/00_setup_governance.py
+
+        - task_key: land_raw_data
+          depends_on:
+            - task_key: setup_governance
+          notebook_task:
+            notebook_path: ../src/notebooks/01_generate_raw_data.py
+            base_parameters:
+              seed: "42"
+              reset_landing: "true"
+
+        - task_key: ingest_and_transform
+          depends_on:
+            - task_key: land_raw_data
+          # The landing zone is regenerated deterministically on every run, so rebuild from it.
+          # Day-to-day, new tracker drops are picked up incrementally by Auto Loader.
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.budget_execution_pipeline.id}
+            full_refresh: true
+
+        - task_key: govern_and_document
+          depends_on:
+            - task_key: ingest_and_transform
+          notebook_task:
+            notebook_path: ../src/notebooks/02_govern_and_document.py
+            base_parameters:
+              pipeline_id: ${resources.pipelines.budget_execution_pipeline.id}
+
+        - task_key: train_lapse_risk_model
+          depends_on:
+            - task_key: govern_and_document
+          notebook_task:
+            notebook_path: ../src/notebooks/03_train_lapse_risk_model.py
+
+        - task_key: forecast_and_ai_briefings
+          depends_on:
+            - task_key: train_lapse_risk_model
+          notebook_task:
+            notebook_path: ../src/notebooks/04_forecast_and_ai_briefings.py
+            base_parameters:
+              llm_endpoint: ${var.llm_endpoint}
+
+        - task_key: lakebase_serving
+          depends_on:
+            - task_key: forecast_and_ai_briefings
+          timeout_seconds: 3600
+          notebook_task:
+            notebook_path: ../src/notebooks/05_lakebase_operational_serving.py
+            base_parameters:
+              lakebase_project: ${var.lakebase_project}
+
+        - task_key: genie_space
+          depends_on:
+            - task_key: lakebase_serving
+          notebook_task:
+            notebook_path: ../src/notebooks/06_genie_space.py
+            base_parameters:
+              warehouse_id: ${var.warehouse_id}

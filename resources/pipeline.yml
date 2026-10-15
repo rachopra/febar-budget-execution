@@ -1,0 +1,18 @@
+resources:
+  pipelines:
+    budget_execution_pipeline:
+      name: febar-budget-execution-sdp
+      serverless: true
+      catalog: ${var.catalog}
+      schema: ${var.schema}
+      root_path: ../src/pipeline
+      libraries:
+        - glob:
+            include: ../src/pipeline/**
+      configuration:
+        landing_path: /Volumes/${var.catalog}/${var.schema}/landing
+        as_of_date: ${var.as_of_date}
+        governance_schema: ${var.catalog}.${var.schema}
+      tags:
+        domain: financial-management
+        use_case: budget-execution-oversight
