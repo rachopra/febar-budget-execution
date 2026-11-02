@@ -1,6 +1,6 @@
 # Financial risk and variance alerts by type and severity
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT alert_type, severity, COUNT(*) AS alerts, ROUND(SUM(amount_at_risk) / 1e6, 2) AS amount_at_risk_m

@@ -1,6 +1,6 @@
 # Row counts through the medallion layers
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT 'bronze_pr_events' AS table_name, COUNT(*) AS rows FROM rachopra_catalog.fe_bar.bronze_pr_events UNION ALL

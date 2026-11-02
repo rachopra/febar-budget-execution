@@ -1,6 +1,6 @@
 # Unobligated balances approaching deadlines (expire within 90 days)
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT b.line_id, b.ppa_name, b.tas, b.days_to_expiration, ROUND(b.total_budget / 1e6, 2) AS budget_m,

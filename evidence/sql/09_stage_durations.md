@@ -1,6 +1,6 @@
 # Median days in each procurement stage (from the SCD2 status history)
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT acquisition_type, stage, SUM(completed_stage_transitions) AS transitions, MAX(median_days_in_stage) AS median_days

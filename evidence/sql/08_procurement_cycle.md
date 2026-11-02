@@ -1,6 +1,6 @@
 # Procurement-cycle visibility: PALT by acquisition type and open pipeline at risk
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT acquisition_type,

@@ -1,6 +1,6 @@
 # Funding by program office (current funds)
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT office, ROUND(MEASURE(total_budget) / 1e6, 1) AS budget_m, ROUND(MEASURE(obligated_to_date) / 1e6, 1) AS obligated_m,

@@ -1,6 +1,6 @@
 # GenAI execution briefings (ai_query) with grounding check
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT b.line_id, f.risk_tier, b.headline, b.summary, array_join(b.recommended_actions, ' | ') AS recommended_actions,

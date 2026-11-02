@@ -14,7 +14,15 @@ from pathlib import Path
 FQ = "rachopra_catalog.fe_bar"
 
 
-def queries(pipeline_id: str) -> dict[str, tuple[str, str]]:
+def history(streams: dict[str, list[str]], table: str, cols: str) -> str:
+    """Read the newest UC table the CDF writes for one Postgres table. Recreating a CDF config writes a new
+    `_1` table seeded with every existing row, and the original stops updating."""
+    suffix = lambda t: int(t.rsplit("_", 1)[-1]) if t.rsplit("_", 1)[-1].isdigit() else 0
+    t = max(streams.get(table) or [f"lb_{table}_history"], key=suffix)
+    return f"SELECT '{t}' AS uc_table, {cols} FROM {FQ}.{t}"
+
+
+def queries(pipeline_id: str, streams: dict[str, list[str]]) -> dict[str, tuple[str, str]]:
     q = {
         "01_table_inventory": ("Every table and view in the schema, by medallion layer", f"""
 SELECT table_name, table_type, comment
@@ -136,15 +144,20 @@ WHERE table_schema = 'fe_bar' AND table_name = 'gold_budget_execution' AND comme
 SELECT table_name, table_type, created FROM rachopra_catalog.information_schema.tables
 WHERE table_schema = 'fe_bar' AND table_name LIKE 'lb\\_%' ORDER BY table_name"""),
         "21_app_alert_actions_in_uc": ("App write-back round trip: alert actions (app -> Lakebase -> CDF -> UC Delta)", f"""
-SELECT _pg_change_type, _timestamp AS landed_in_uc, alert_id, alert_type, line_id, action, assignee, note, acted_by, acted_at
-FROM {FQ}.lb_app_alert_actions_history ORDER BY acted_at"""),
+{history(streams, "app_alert_actions", "_pg_change_type, _timestamp AS landed_in_uc, alert_id, alert_type, line_id, action, assignee, note, acted_by, acted_at")}
+ORDER BY acted_at"""),
         "22_app_packages_in_uc": ("App write-back round trip: procurement packages submitted to acquisition", f"""
-SELECT _pg_change_type, _timestamp AS landed_in_uc, package_id, line_id, title, acquisition_type, contract_number, amount,
-       status, source, model_endpoint, created_by, created_at
-FROM {FQ}.lb_app_procurement_packages_history ORDER BY created_at"""),
+{history(streams, "app_procurement_packages", "_pg_change_type, _timestamp AS landed_in_uc, package_id, line_id, title, acquisition_type, contract_number, amount, status, source, model_endpoint, created_by, created_at")}
+ORDER BY created_at"""),
         "23_app_signoffs_in_uc": ("App write-back round trip: quarterly review sign-offs", f"""
-SELECT _pg_change_type, _timestamp AS landed_in_uc, office_code, fiscal_year, fiscal_quarter, decision, comment, signed_by, signed_at
-FROM {FQ}.lb_app_review_signoffs_history ORDER BY signed_at"""),
+{history(streams, "app_review_signoffs", "_pg_change_type, _timestamp AS landed_in_uc, office_code, fiscal_year, fiscal_quarter, decision, comment, signed_by, signed_at")}
+ORDER BY signed_at"""),
+        "24_app_reprogramming_in_uc": ("App write-back round trip: reprogramming requests within a TAS (with approval state)", f"""
+{history(streams, "app_reprogramming_requests", "_pg_change_type, _timestamp AS landed_in_uc, request_id, tas, from_line_id, to_line_id, amount, notification_required, status, requested_by, requested_at, decided_by, decided_at")}
+ORDER BY requested_at, landed_in_uc"""),
+        "25_app_line_notes_in_uc": ("App write-back round trip: analyst notes on budget lines", f"""
+{history(streams, "app_line_notes", "_pg_change_type, _timestamp AS landed_in_uc, note_id, line_id, office_code, note, author, created_at")}
+ORDER BY created_at"""),
     }
     if pipeline_id:
         q["00_pipeline_expectations"] = ("Spark Declarative Pipeline: data-quality expectation results (latest update)", f"""
@@ -195,7 +208,13 @@ def main():
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     index = ["# SQL evidence", "", f"Queries executed on SQL warehouse `{a.warehouse}` at {stamp}.", "",
              "| Evidence | What it shows | Rows |", "|---|---|---|"]
-    for name, (title, sql) in sorted(queries(a.pipeline_id).items()):
+    cols, rows = run("SELECT table_name FROM rachopra_catalog.information_schema.tables WHERE table_schema = 'fe_bar' "
+                     "AND table_name LIKE 'lb\\_app\\_%' AND table_name LIKE '%\\_history%' ORDER BY table_name",
+                     a.profile, a.warehouse)
+    streams: dict[str, list[str]] = {}
+    for (t,) in rows if cols else []:
+        streams.setdefault(t.removeprefix("lb_").split("_history")[0], []).append(t)
+    for name, (title, sql) in sorted(queries(a.pipeline_id, streams).items()):
         cols, rows = run(sql, a.profile, a.warehouse)
         body = md(cols, rows) if cols else f"**Query failed:** {rows}"
         (out / f"{name}.md").write_text(f"# {title}\n\nExecuted {stamp}\n\n```sql\n{sql.strip()}\n```\n\n**Result:**\n\n{body}\n")

@@ -1,6 +1,6 @@
 # Spark Declarative Pipeline: data-quality expectation results (latest update)
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 WITH latest AS (SELECT origin.update_id FROM event_log('2a2a20f2-5cb5-4aa8-99db-6e9c0bca6ebe') WHERE event_type = 'create_update' ORDER BY timestamp DESC LIMIT 1),

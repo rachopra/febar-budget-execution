@@ -1,6 +1,6 @@
 # Unity Catalog tags (governed tag policies: domain, layer, data_classification, contains_pii)
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT table_name, array_join(sort_array(collect_list(concat(tag_name, '=', tag_value))), ', ') AS tags

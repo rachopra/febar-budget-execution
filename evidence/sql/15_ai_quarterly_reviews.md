@@ -1,6 +1,6 @@
 # GenAI quarterly budget-performance review narratives
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT office_code, performance_summary, array_join(key_risks, ' | ') AS key_risks,

@@ -45,6 +45,8 @@ def pool() -> ConnectionPool:
             kwargs={"host": _pg_host(), "port": int(os.environ.get("PGPORT", "5432")), "dbname": PG_DATABASE,
                     "user": _pg_user(), "sslmode": "require", "row_factory": dict_row},
             connection_class=_OAuthConnection, min_size=1, max_size=8, max_lifetime=2700, open=True,
+            # Lakebase can end idle sessions (restarts, scale events): validate before handing one out
+            check=ConnectionPool.check_connection,
         )
     return _pool
 

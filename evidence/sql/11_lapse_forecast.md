@@ -1,6 +1,6 @@
 # ML lapse-risk forecast for current lines (model @champion)
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT risk_tier, COUNT(*) AS lines, ROUND(SUM(total_budget) / 1e6, 1) AS budget_m,

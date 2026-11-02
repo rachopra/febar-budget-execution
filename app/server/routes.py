@@ -12,6 +12,8 @@ from .config import DEFAULT_OFFICE_SCOPE, LOCAL_USER, PG_SCHEMA, SERVING_ENDPOIN
 
 router = APIRouter(prefix="/api")
 S = PG_SCHEMA
+AWARD_BUFFER_DAYS = 14  # award at least two weeks before the funds expire
+APPROVER_ROLES = {"Budget Director"}
 
 
 # ----------------------------------------------------------------------------------- identity
@@ -50,7 +52,8 @@ def scope(user: User, office: str | None, alias: str = "") -> tuple[str, list]:
 
 @router.get("/me")
 def me(user: User = Depends(current_user)):
-    return user.model_dump() | {"genie_on_behalf_of_user": bool(user.token)}
+    return user.model_dump() | {"genie_on_behalf_of_user": bool(user.token),
+                                "can_approve_reprogramming": user.role in APPROVER_ROLES and user.offices is None}
 
 
 @router.get("/filters")
@@ -166,7 +169,31 @@ def line_detail(line_id: str, user: User = Depends(current_user)):
         "alerts": db.query(f"SELECT alert_id, alert_type, severity, amount_at_risk, detail FROM {S}.lb_financial_risk_alerts WHERE line_id = %s ORDER BY amount_at_risk DESC", (line_id,)),
         "package_draft": next(iter(db.query(f"SELECT * FROM {S}.lb_procurement_package_drafts WHERE line_id = %s", (line_id,))), None),
         "submitted_packages": db.query("SELECT * FROM workflow.app_procurement_packages WHERE line_id = %s ORDER BY created_at DESC", (line_id,)),
+        "reprogramming": db.query("""SELECT * FROM workflow.app_reprogramming_requests
+                                     WHERE %s IN (from_line_id, to_line_id) ORDER BY requested_at DESC""", (line_id,)),
     }
+
+
+class Note(BaseModel):
+    note: str = Field(min_length=1, max_length=2000)
+
+
+@router.get("/lines/{line_id}/notes")
+def line_notes(line_id: str, user: User = Depends(current_user)):
+    where, params = scope(user, None)
+    return db.query(f"SELECT * FROM workflow.app_line_notes WHERE line_id = %s AND {where} ORDER BY created_at DESC",
+                    [line_id, *params])
+
+
+@router.post("/lines/{line_id}/notes")
+def add_line_note(line_id: str, body: Note, user: User = Depends(current_user)):
+    where, params = scope(user, None)
+    line = db.query(f"SELECT office_code FROM {S}.lb_budget_execution WHERE line_id = %s AND {where}", [line_id, *params])
+    if not line:
+        raise HTTPException(404, "Line not found or not in your office scope")
+    return db.execute("""INSERT INTO workflow.app_line_notes (line_id, office_code, note, author)
+                         VALUES (%s, %s, %s, %s) RETURNING *""",
+                      (line_id, line[0]["office_code"], body.note.strip(), user.email))[0]
 
 
 # ----------------------------------------------------------------------------------- alerts
@@ -199,6 +226,13 @@ def alert_summary(office: str | None = None, user: User = Depends(current_user))
                         FROM {S}.lb_financial_risk_alerts WHERE {where} GROUP BY 1, 2 ORDER BY 4 DESC""", params)
 
 
+@router.get("/alerts/{alert_id}/history")
+def alert_history(alert_id: str, user: User = Depends(current_user)):
+    where, params = scope(user, None)
+    return db.query(f"SELECT * FROM workflow.app_alert_actions WHERE alert_id = %s AND {where} ORDER BY acted_at DESC",
+                    [alert_id, *params])
+
+
 class AlertAction(BaseModel):
     action: str = Field(pattern="^(Acknowledged|Assigned|Escalated|Resolved)$")
     assignee: str | None = None
@@ -226,7 +260,8 @@ def procurement(office: str | None = None, user: User = Depends(current_user)):
     where, params = scope(user, office)
     open_prs = db.query(f"""
         SELECT pr_id, line_id, ppa_name, office_code, title, acquisition_type, contract_vehicle, estimated_amount,
-               status, days_in_status, age_days, forecast_award_date, expiration_date, at_risk_of_missing_expiration
+               status, days_in_status, age_days, forecast_award_date, expiration_date, at_risk_of_missing_expiration,
+               COALESCE(submitted_at, drafted_at) AS started_at, median_palt_days
         FROM {S}.lb_procurement_pipeline WHERE is_open AND {where}
         ORDER BY at_risk_of_missing_expiration DESC, expiration_date, estimated_amount DESC LIMIT 300""", params)
     by_stage = db.query(f"""SELECT status, COUNT(*) AS prs, SUM(estimated_amount) AS value
@@ -248,7 +283,7 @@ def _package_facts(line_id: str, user: User) -> dict:
         raise HTTPException(404, "Line not found or not in your office scope")
     r = rows[0]
     as_of = r["as_of_date"]
-    must_award_by = r["expiration_date"] - timedelta(days=14)
+    must_award_by = r["expiration_date"] - timedelta(days=AWARD_BUFFER_DAYS)
     days_left = (must_award_by - as_of).days
     palt = db.query(f"""SELECT acquisition_type,
                                percentile_cont(0.5) WITHIN GROUP (ORDER BY palt_days) AS median_palt_days,

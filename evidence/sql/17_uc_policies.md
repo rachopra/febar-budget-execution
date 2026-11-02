@@ -1,6 +1,6 @@
 # Unity Catalog row filters and column masks on pipeline tables
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT table_name, 'ROW FILTER' AS policy, filter_name AS function, target_columns AS columns

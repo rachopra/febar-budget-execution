@@ -1,6 +1,6 @@
 # FY2026 quarterly budget-performance review: obligations vs plan by office and quarter
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT office_code, fiscal_quarter, ROUND(SUM(planned_obligations) / 1e6, 1) AS planned_m,

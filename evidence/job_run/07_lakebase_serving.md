@@ -1,7 +1,7 @@
 # Lakebase Serving
 
-- Job task: `lakebase_serving` (task run `121033834918535`)
-- Result: **SUCCESS**, started 2026-10-15 14:16:55 UTC, ran 212s on serverless compute
+- Job task: `lakebase_serving` (task run `409691083043867`)
+- Result: **SUCCESS**, started 2026-11-02 17:59:34 UTC, ran 213s on serverless compute
 - Notebook: `/Workspace/Users/rahul.chopra@databricks.com/.bundle/febar-budget-execution/dev/files/src/notebooks/05_lakebase_operational_serving`
 
 # 05 · Lakebase: operational serving and write-back
@@ -11,7 +11,8 @@ The app needs millisecond reads and transactional writes, which is a Postgres wo
 ```
  UC gold tables ──synced tables (snapshot)──▶ Lakebase Postgres `budget_ops.fe_bar.*`   (read path for the app)
                                             Lakebase Postgres `budget_ops.workflow.*`  (app writes: alert actions,
-                                                                                          package requests, sign-offs)
+                                                                                          package requests, sign-offs,
+                                                                                          reprogramming, line notes)
  UC Delta `fe_bar.app_*` ◀──change data feed (CDF config)─────────┘                     (back to the lakehouse)
 ```
 
@@ -28,6 +29,7 @@ dbutils.widgets.text("catalog", "rachopra_catalog")
 dbutils.widgets.text("schema", "fe_bar")
 dbutils.widgets.text("lakebase_project", "fe-bar-budget")
 
+import re
 import time
 
 import pandas as pd
@@ -235,10 +237,42 @@ CREATE TABLE IF NOT EXISTS workflow.app_review_signoffs (
   signed_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- reprogramming between PPAs within the same TAS (no transfer between appropriations);
+-- approval requires a second Budget Director (separation of duties)
+CREATE TABLE IF NOT EXISTS workflow.app_reprogramming_requests (
+  request_id            TEXT PRIMARY KEY,
+  tas                   TEXT NOT NULL,
+  from_line_id          TEXT NOT NULL,
+  from_office_code      TEXT NOT NULL,
+  to_line_id            TEXT NOT NULL,
+  to_office_code        TEXT NOT NULL,
+  amount                NUMERIC(18, 2) NOT NULL CHECK (amount > 0),
+  justification         TEXT,
+  notification_required BOOLEAN NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Approved', 'Rejected', 'Withdrawn')),
+  requested_by          TEXT NOT NULL,
+  requested_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_by            TEXT,
+  decided_at            TIMESTAMPTZ,
+  decision_note         TEXT,
+  CHECK (from_line_id <> to_line_id)
+);
+
+CREATE TABLE IF NOT EXISTS workflow.app_line_notes (
+  note_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  line_id     TEXT NOT NULL,
+  office_code TEXT NOT NULL,
+  note        TEXT NOT NULL,
+  author      TEXT NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- the change data feed to Unity Catalog needs full before/after images of each row
 ALTER TABLE workflow.app_alert_actions REPLICA IDENTITY FULL;
 ALTER TABLE workflow.app_procurement_packages REPLICA IDENTITY FULL;
 ALTER TABLE workflow.app_review_signoffs REPLICA IDENTITY FULL;
+ALTER TABLE workflow.app_reprogramming_requests REPLICA IDENTITY FULL;
+ALTER TABLE workflow.app_line_notes REPLICA IDENTITY FULL;
 """
 with connect() as conn:
     conn.execute(WORKFLOW_DDL)
@@ -265,9 +299,11 @@ display(pd.DataFrame(tables, columns=["pg_schema", "table", "rows"]))
 | fe_bar | lb_procurement_package_drafts | 26 |
 | fe_bar | lb_procurement_pipeline | 4211 |
 | fe_bar | lb_quarterly_review_briefings | 6 |
-| workflow | app_alert_actions | 3 |
-| workflow | app_procurement_packages | 1 |
-| workflow | app_review_signoffs | 3 |
+| workflow | app_alert_actions | 4 |
+| workflow | app_line_notes | 0 |
+| workflow | app_procurement_packages | 2 |
+| workflow | app_reprogramming_requests | 0 |
+| workflow | app_review_signoffs | 4 |
 
 ## App access: least privilege for the app's service principal
 Read-only on the synced serving tables; read/insert/update (no delete) on the workflow tables.
@@ -302,9 +338,9 @@ else:
 | pg_schema | privilege | tables |
 |---|---|---|
 | fe_bar | SELECT | 10 |
-| workflow | INSERT | 3 |
-| workflow | SELECT | 3 |
-| workflow | UPDATE | 3 |
+| workflow | INSERT | 5 |
+| workflow | SELECT | 5 |
+| workflow | UPDATE | 5 |
 
 ## Change data feed: workflow tables → Unity Catalog Delta
 
@@ -312,18 +348,33 @@ else:
 database = next(d for d in w.postgres.list_databases(parent=branch)
                 if (getattr(d.status, "postgres_database", None) or d.name.split("/")[-1]) in (PG_DB, PG_DB.replace("_", "-")))
 cdf_parent = database.name
+cdf_name = f"{cdf_parent}/cdf-configs/workflow"
+workflow_tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS workflow\.(\w+)", WORKFLOW_DDL))
 try:
-    cdf = w.postgres.get_cdf_config(name=f"{cdf_parent}/cdf-configs/workflow")
+    cdf = w.postgres.get_cdf_config(name=cdf_name)
+    streamed = {st.postgres_table for st in w.postgres.list_cdf_statuses(parent=cdf_name)}
     print("CDF config exists:", cdf.name)
 except Exception:
-    op = w.postgres.create_cdf_config(parent=cdf_parent, cdf_config_id="workflow",
-                                      cdf_config=CdfConfig(catalog=catalog, schema=schema, postgres_schema="workflow"))
+    cdf, streamed = None, set()
+if cdf and not workflow_tables <= streamed:
+    # a CDF config streams the tables that existed when it was created: recreate it to pick up new ones
+    print("Recreating the CDF config to add", sorted(workflow_tables - streamed))
+    w.postgres.delete_cdf_config(name=cdf_name).wait()
+    cdf = None
+if cdf is None:
+    w.postgres.create_cdf_config(parent=cdf_parent, cdf_config_id="workflow",
+                                 cdf_config=CdfConfig(catalog=catalog, schema=schema, postgres_schema="workflow"))
     print("Created CDF config for workflow schema ->", fq)
 
-time.sleep(60)
+deadline = time.time() + 900
+while True:  # wait until every workflow table streams (or 15 minutes pass)
+    found = list(w.postgres.list_cdf_statuses(parent=cdf_name))
+    streaming = {st.postgres_table for st in found if st.state and "STREAMING" in st.state.value}
+    if workflow_tables <= streaming or time.time() > deadline:
+        break
+    time.sleep(30)
 statuses = [{"postgres_table": st.postgres_table, "state": str(st.state.value if st.state else ""),
-             "detail": st.status_detail, "last_sync_time": str(st.last_sync_time)}
-            for st in w.postgres.list_cdf_statuses(parent=f"{cdf_parent}/cdf-configs/workflow")]
+             "detail": st.status_detail, "last_sync_time": str(st.last_sync_time)} for st in found]
 display(pd.DataFrame(statuses))
 ```
 
@@ -331,13 +382,17 @@ display(pd.DataFrame(statuses))
 
 ```text
 CDF config exists: projects/fe-bar-budget/branches/production/databases/db-st2u-nybclwufhl/cdf-configs/workflow
+Recreating the CDF config to add ['app_line_notes', 'app_reprogramming_requests']
+Created CDF config for workflow schema -> rachopra_catalog.fe_bar
 ```
 
 | postgres_table | state | detail | last_sync_time |
 |---|---|---|---|
-| app_alert_actions | CDF_STATE_STREAMING |  | seconds: 1792073403 nanos: 969479000  |
-| app_procurement_packages | CDF_STATE_STREAMING |  | seconds: 1792073434 nanos: 75104000  |
-| app_review_signoffs | CDF_STATE_STREAMING |  | seconds: 1792073434 nanos: 70056000  |
+| app_alert_actions | CDF_STATE_STREAMING |  | seconds: 1793642556 nanos: 526757000  |
+| app_procurement_packages | CDF_STATE_STREAMING |  | seconds: 1793642558 nanos: 338462000  |
+| app_review_signoffs | CDF_STATE_STREAMING |  | seconds: 1793642559 nanos: 963317000  |
+| app_reprogramming_requests | CDF_STATE_STREAMING |  | seconds: 1793642553 nanos: 426976000  |
+| app_line_notes | CDF_STATE_STREAMING |  | seconds: 1793642554 nanos: 942693000  |
 
 ## Read-path check: what the app's overview query returns from Postgres
 
@@ -370,5 +425,5 @@ print(f"Postgres round trip: {ms:.1f} ms")
 | Office of Management and Administration | 291.6 | 199.6 | 68.5 | 94.9 |
 
 ```text
-Postgres round trip: 4.4 ms
+Postgres round trip: 74.0 ms
 ```

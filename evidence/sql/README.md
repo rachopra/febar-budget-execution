@@ -1,12 +1,12 @@
 # SQL evidence
 
-Queries executed on SQL warehouse `5aa6f979abb6e2d1` at 2026-10-15 14:26 UTC.
+Queries executed on SQL warehouse `5aa6f979abb6e2d1` at 2026-11-02 18:12 UTC.
 
 | Evidence | What it shows | Rows |
 |---|---|---|
 | [00_pipeline_expectations](00_pipeline_expectations.md) | Spark Declarative Pipeline: data-quality expectation results (latest update) | 20 |
 | [00_pipeline_update](00_pipeline_update.md) | Spark Declarative Pipeline: latest update lifecycle | 6 |
-| [01_table_inventory](01_table_inventory.md) | Every table and view in the schema, by medallion layer | 44 |
+| [01_table_inventory](01_table_inventory.md) | Every table and view in the schema, by medallion layer | 49 |
 | [02_row_counts](02_row_counts.md) | Row counts through the medallion layers | 19 |
 | [03_agency_kpis](03_agency_kpis.md) | Budget execution dashboard KPIs (current funds) via the UC metric view | 1 |
 | [04_funding_by_office](04_funding_by_office.md) | Funding by program office (current funds) | 6 |
@@ -24,8 +24,10 @@ Queries executed on SQL warehouse `5aa6f979abb6e2d1` at 2026-10-15 14:26 UTC.
 | [16_ai_procurement_packages](16_ai_procurement_packages.md) | Automated procurement package initiation (AI drafts, validated) | 26 |
 | [17_uc_policies](17_uc_policies.md) | Unity Catalog row filters and column masks on pipeline tables | 6 |
 | [18_uc_tags](18_uc_tags.md) | Unity Catalog tags (governed tag policies: domain, layer, data_classification, contains_pii) | 27 |
-| [19_uc_column_docs](19_uc_column_docs.md) | Unity Catalog column documentation on gold_budget_execution | 22 |
-| [20_lakebase_tables_in_uc](20_lakebase_tables_in_uc.md) | Lakebase objects in Unity Catalog: synced serving tables and CDF write-back history | 13 |
-| [21_app_alert_actions_in_uc](21_app_alert_actions_in_uc.md) | App write-back round trip: alert actions (app -> Lakebase -> CDF -> UC Delta) | 4 |
-| [22_app_packages_in_uc](22_app_packages_in_uc.md) | App write-back round trip: procurement packages submitted to acquisition | 2 |
-| [23_app_signoffs_in_uc](23_app_signoffs_in_uc.md) | App write-back round trip: quarterly review sign-offs | 4 |
+| [19_uc_column_docs](19_uc_column_docs.md) | Unity Catalog column documentation on gold_budget_execution | 23 |
+| [20_lakebase_tables_in_uc](20_lakebase_tables_in_uc.md) | Lakebase objects in Unity Catalog: synced serving tables and CDF write-back history | 18 |
+| [21_app_alert_actions_in_uc](21_app_alert_actions_in_uc.md) | App write-back round trip: alert actions (app -> Lakebase -> CDF -> UC Delta) | 8 |
+| [22_app_packages_in_uc](22_app_packages_in_uc.md) | App write-back round trip: procurement packages submitted to acquisition | 4 |
+| [23_app_signoffs_in_uc](23_app_signoffs_in_uc.md) | App write-back round trip: quarterly review sign-offs | 6 |
+| [24_app_reprogramming_in_uc](24_app_reprogramming_in_uc.md) | App write-back round trip: reprogramming requests within a TAS (with approval state) | 2 |
+| [25_app_line_notes_in_uc](25_app_line_notes_in_uc.md) | App write-back round trip: analyst notes on budget lines | 2 |

@@ -40,10 +40,17 @@ TABLES = [
     "silver_procurement_requests",
 ]
 existing_tables = {r.tableName for r in spark.sql(f"SHOW TABLES IN {fq}").collect()}
-# App write-backs streamed from Lakebase by the CDF config (present once the app has been used)
-for optional in ["lb_app_alert_actions_history", "lb_app_procurement_packages_history", "lb_app_review_signoffs_history"]:
-    if optional in existing_tables:
-        TABLES.append(optional)
+# App write-backs streamed from Lakebase by the CDF config (present once the app has been used). A recreated
+# CDF config writes a new `_1` table seeded with every row, so use the newest table of each stream.
+def suffix(t):
+    tail = t.rsplit("_", 1)[-1]
+    return int(tail) if tail.isdigit() else 0
+
+for stream in ["app_alert_actions", "app_procurement_packages", "app_review_signoffs",
+               "app_reprogramming_requests", "app_line_notes"]:
+    found = [t for t in existing_tables if t == f"lb_{stream}_history" or t.startswith(f"lb_{stream}_history_")]
+    if found:
+        TABLES.append(max(found, key=suffix))
 
 INSTRUCTIONS = f"""
 Context: budget execution data for a fictional federal civilian agency (synthetic). The reporting date is {as_of}.
@@ -57,8 +64,10 @@ Definitions:
 - Obligation rate = obligated / total budget. Burn rate vs plan = obligated / planned obligations to date (1.0 = on plan).
 - Funds that are not obligated by expiration_date lapse. "Expiring soon" means fund_status = 'Current' and days_to_expiration <= 90.
 - PALT = procurement administrative lead time, submission to award (palt_days).
-- lb_app_*_history tables hold actions taken in the app (alert assignments, package submissions, quarterly sign-offs),
-  streamed from Lakebase; _pg_change_type is insert/update.
+- lb_app_*_history tables hold actions taken in the app (alert board moves, procurement package submissions,
+  reprogramming requests and their approval, analyst notes on budget lines, quarterly sign-offs), streamed from
+  Lakebase; _pg_change_type is insert/update. For the current status of a reprogramming request, use its latest row
+  by _timestamp.
 
 Rules:
 - Unless the user asks about expired or prior-year funds, filter to fund_status = 'Current'.

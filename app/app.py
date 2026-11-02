@@ -6,10 +6,12 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from server import yearend
 from server.routes import router
 
 app = FastAPI(title="Budget Execution & Financial Oversight")
 app.include_router(router)
+app.include_router(yearend.router)
 
 dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 if os.path.isdir(dist):

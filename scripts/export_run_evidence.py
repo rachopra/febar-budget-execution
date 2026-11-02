@@ -106,6 +106,7 @@ def main():
     ap.add_argument("run_id")
     ap.add_argument("--profile", default="fe-vm-rachopra-cyber-demo")
     ap.add_argument("--out", default="evidence/job_run")
+    ap.add_argument("--repair-note", default="", help="why tasks were repaired (written to the index)")
     a = ap.parse_args()
 
     run = cli("jobs", "get-run", a.run_id, profile=a.profile)
@@ -120,8 +121,8 @@ def main():
     index = [f"# Job run {a.run_id}: `{run.get('run_name')}`", "",
              f"Run page: {run.get('run_page_url')}", "",
              f"Overall result: **{run.get('state', {}).get('result_state')}**. "
-             + (f"Tasks {', '.join(sorted(repaired))} were re-run in a repair of this run after a guardrail was added "
-                "to procurement package drafting; their final attempt is shown." if repaired else ""), "",
+             + (f"Tasks {', '.join(sorted(repaired))} were re-run in a repair of this run; the final attempt of each "
+                "task is shown. " + a.repair_note if repaired else ""), "",
              "| # | Task | Type | Result | Duration (s) | Evidence |", "|---|---|---|---|---|---|"]
     for i, t in enumerate(tasks, 1):
         kind = "notebook" if "notebook_task" in t else "pipeline" if "pipeline_task" in t else "other"

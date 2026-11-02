@@ -1,6 +1,6 @@
 # Grounding check pass rate for all AI outputs
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT 'execution briefings' AS output, COUNT(*) AS generated, COUNT_IF(grounding_passed) AS grounded,

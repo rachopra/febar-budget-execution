@@ -1,7 +1,7 @@
 # Genie Space
 
-- Job task: `genie_space` (task run `123694528472583`)
-- Result: **SUCCESS**, started 2026-10-15 14:20:27 UTC, ran 199s on serverless compute
+- Job task: `genie_space` (task run `19292932255085`)
+- Result: **SUCCESS**, started 2026-11-02 18:12:56 UTC, ran 206s on serverless compute
 - Notebook: `/Workspace/Users/rahul.chopra@databricks.com/.bundle/febar-budget-execution/dev/files/src/notebooks/06_genie_space`
 
 # 06 · Genie: ask budget execution questions in plain English
@@ -43,10 +43,17 @@ TABLES = [
     "silver_procurement_requests",
 ]
 existing_tables = {r.tableName for r in spark.sql(f"SHOW TABLES IN {fq}").collect()}
-# App write-backs streamed from Lakebase by the CDF config (present once the app has been used)
-for optional in ["lb_app_alert_actions_history", "lb_app_procurement_packages_history", "lb_app_review_signoffs_history"]:
-    if optional in existing_tables:
-        TABLES.append(optional)
+# App write-backs streamed from Lakebase by the CDF config (present once the app has been used). A recreated
+# CDF config writes a new `_1` table seeded with every row, so use the newest table of each stream.
+def suffix(t):
+    tail = t.rsplit("_", 1)[-1]
+    return int(tail) if tail.isdigit() else 0
+
+for stream in ["app_alert_actions", "app_procurement_packages", "app_review_signoffs",
+               "app_reprogramming_requests", "app_line_notes"]:
+    found = [t for t in existing_tables if t == f"lb_{stream}_history" or t.startswith(f"lb_{stream}_history_")]
+    if found:
+        TABLES.append(max(found, key=suffix))
 
 INSTRUCTIONS = f"""
 Context: budget execution data for a fictional federal civilian agency (synthetic). The reporting date is {as_of}.
@@ -60,8 +67,10 @@ Definitions:
 - Obligation rate = obligated / total budget. Burn rate vs plan = obligated / planned obligations to date (1.0 = on plan).
 - Funds that are not obligated by expiration_date lapse. "Expiring soon" means fund_status = 'Current' and days_to_expiration <= 90.
 - PALT = procurement administrative lead time, submission to award (palt_days).
-- lb_app_*_history tables hold actions taken in the app (alert assignments, package submissions, quarterly sign-offs),
-  streamed from Lakebase; _pg_change_type is insert/update.
+- lb_app_*_history tables hold actions taken in the app (alert board moves, procurement package submissions,
+  reprogramming requests and their approval, analyst notes on budget lines, quarterly sign-offs), streamed from
+  Lakebase; _pg_change_type is insert/update. For the current status of a reprogramming request, use its latest row
+  by _timestamp.
 
 Rules:
 - Unless the user asks about expired or prior-year funds, filter to fund_status = 'Current'.
@@ -155,9 +164,11 @@ Tables:
   gold_lapse_risk_forecast
   gold_execution_briefings
   silver_procurement_requests
-  lb_app_alert_actions_history
-  lb_app_procurement_packages_history
-  lb_app_review_signoffs_history
+  lb_app_alert_actions_history_1
+  lb_app_procurement_packages_history_1
+  lb_app_review_signoffs_history_1
+  lb_app_reprogramming_requests_history
+  lb_app_line_notes_history
 ```
 
 ## Ask the questions leadership asks
@@ -212,12 +223,12 @@ for q in QUESTIONS:
 **Output:**
 
 ```text
-[COMPLETED] What is the agency's overall obligation rate and burn rate versus plan for current funds?  (33.1s, 1 rows)
-[COMPLETED] Which program offices are furthest behind their spend plan?  (20.7s, 6 rows)
-[COMPLETED] Which budget lines have more than $1M unobligated and expire in the next 90 days?  (20.7s, 26 rows)
-[COMPLETED] What is the total projected lapse by office according to the lapse-risk forecast?  (16.7s, 6 rows)
-[COMPLETED] Show the critical and high severity financial risk alerts with the amount at risk  (20.7s, 85 rows)
-[COMPLETED] What is the median procurement administrative lead time by acquisition type?  (16.6s, 6 rows)
+[COMPLETED] What is the agency's overall obligation rate and burn rate versus plan for current funds?  (20.9s, 1 rows)
+[COMPLETED] Which program offices are furthest behind their spend plan?  (23.4s, 6 rows)
+[COMPLETED] Which budget lines have more than $1M unobligated and expire in the next 90 days?  (16.6s, 26 rows)
+[COMPLETED] What is the total projected lapse by office according to the lapse-risk forecast?  (16.6s, 6 rows)
+[COMPLETED] Show the critical and high severity financial risk alerts with the amount at risk  (16.7s, 85 rows)
+[COMPLETED] What is the median procurement administrative lead time by acquisition type?  (16.8s, 6 rows)
 [COMPLETED] Which open procurement requests will miss their fund expiration date, and how much money is involved?  (20.8s, 10 rows)
 [COMPLETED] How did the Office of Transportation Safety's obligations compare to plan by fiscal quarter this year?  (24.9s, 4 rows)
 ```
@@ -241,8 +252,8 @@ for a in answers:
 ```text
 ==============================================================================================================
 Q: What is the agency's overall obligation rate and burn rate versus plan for current funds?
-Genie: You want to see the obligation rate and burn rate compared to plan for current funds, broken down by each office.
-Text: For **current funds**, the agency has **$1,356.1M** obligated out of **$2,147.0M** in total budget, for an overall obligation rate of **63.2%**. The burn rate versus plan is **91.3%**, which means current funds are running below plan overall.
+Genie: You want to see the obligation rate and burn rate compared to plan for current funds, broken down by each office in the agency.
+Text: For **current funds**, the agency has obligated **$1,356.1M** out of **$2,147.0M**, for an overall obligation rate of **63.2%**. The burn rate versus plan for **current funds** is **91.3%**, which means obligations are running below plan based on the reported measure.
 SQL:
 SELECT MEASURE(`total_budget`) AS `total_budget`, MEASURE(`obligated_to_date`) AS `obligated_to_date`, 100 * MEASURE(`obligation_rate`) AS `obligation_rate_pct`, 100 * MEASURE(`burn_rate_vs_plan`) AS `burn_rate_vs_plan_pct`
 FROM `rachopra_catalog`.`fe_bar`.`mv_budget_execution`
@@ -252,57 +263,66 @@ GROUP BY ALL
 2147031000.00     1356137416.88           63.163400             91.267800
 ==============================================================================================================
 Q: Which program offices are furthest behind their spend plan?
-Genie: You want to see the obligation rate and how the actual spending compares to the planned spending for each program office with current funds.
-Text: The program offices furthest behind plan are the ones with the **lowest burn rate versus plan** among current funds. Some of the offices furthest behind are:
-- **Office of Transportation Safety** — **83.1%** of plan, with **$176.2M** obligated versus **$212.1M** planned
-- **Office of Workforce Development** — **91.4%** of plan, with **$95.0M** obligated versus **$104.0M** planned
-- **Office of Grid Modernization** — **91.7%** of plan, with **$309.5M** obligated versus **$337.7M** planned
-- **Office of the Chief Information Officer** — **92.0%** of plan, with **$384.9M** obligated versus **$418.5M** planned
-- **Office of Water Systems** — **93.9%** of plan, with **$190.8M** obligated versus **$203.2M** planned
-Across all **6** offices shown, burn rate versus plan ranges from **83.1%** to **94.9%**, so **Office of Transportation Safety** is the clearest laggard.
+Genie: You want to see a list of program offices that are currently furthest behind their planned spending, based on their burn rate compared to the plan.
+Text: The program offices furthest behind their spend plan are **Office of Transportation Safety** and **Office of Workforce Development**, based on the lowest burn rate versus plan among current funds. Examples include:
+- **Office of Transportation Safety (OTS):** **83.1%** of plan, with **$176.2M** obligated against **$212.1M** planned
+- **Office of Workforce Development (OWD):** **91.4%** of plan, with **$95.0M** obligated against **$104.0M** planned
+- **Office of Grid Modernization (OGM):** **91.7%** of plan, with **$309.5M** obligated against **$337.7M** planned
+- **Office of the Chief Information Officer (OCIO):** **92.0%** of plan, with **$384.9M** obligated against **$418.5M** planned
+- **Office of Water Systems (OWS):** **93.9%** of plan, with **$190.8M** obligated against **$203.2M** planned
+Across all 6 offices shown, burn rate versus plan ranges from **83.1%** to **94.9%**, so every office in this result is currently below plan, with Transportation Safety the furthest behind.
 SQL:
 SELECT
   `office`,
-  ROUND(MEASURE(`burn_rate_vs_plan`), 3) AS `burn_rate_vs_plan`,
-  ROUND(try_divide(MEASURE(`obligated_to_date`),1e6), 1) AS `obligated_m`,
-  ROUND(try_divide(MEASURE(`planned_obligations_to_date`),1e6), 1) AS `planned_obligations_m`,
-  ROUND(try_divide(MEASURE(`total_budget`),1e6), 1) AS `total_budget_m`,
-  ROUND(try_divide(MEASURE(`unobligated_balance`),1e6), 1) AS `unobligated_m`
+  `office_code`,
+  MEASURE(`total_budget`) AS `total_budget`,
+  MEASURE(`planned_obligations_to_date`) AS `planned_obligations_to_date`,
+  MEASURE(`obligated_to_date`) AS `obligated_to_date`,
+  MEASURE(`burn_rate_vs_plan`) AS `burn_rate_vs_plan`
 FROM `rachopra_catalog`.`fe_bar`.`mv_budget_execution`
-WHERE `fund_status` = 'Current'
+WHERE `fund_status` ILIKE '%Current%'
   AND `office` IS NOT NULL
+  AND `office_code` IS NOT NULL
 GROUP BY ALL
+HAVING `burn_rate_vs_plan` IS NOT NULL
 ORDER BY `burn_rate_vs_plan` ASC
-                                 office burn_rate_vs_plan obligated_m planned_obligations_m total_budget_m unobligated_m
-        Office of Transportation Safety             0.831       176.2                 212.1          304.1         127.8
-        Office of Workforce Development             0.914        95.0                 104.0          165.6          70.6
-           Office of Grid Modernization             0.917       309.5                 337.7          492.6         183.0
-Office of the Chief Information Officer             0.920       384.9                 418.5          595.4         210.5
-                Office of Water Systems             0.939       190.8                 203.2          297.7         106.9
-Office of Management and Administration             0.949       199.6                 210.4          291.6          92.0
+                                 office office_code total_budget planned_obligations_to_date obligated_to_date burn_rate_vs_plan
+        Office of Transportation Safety         OTS 304063000.00                212135200.00      176219742.52          0.830695
+        Office of Workforce Development         OWD 165619000.00                103978900.00       95013158.46          0.913773
+           Office of Grid Modernization         OGM 492585000.00                337690850.79      309543024.69          0.916646
+Office of the Chief Information Officer        OCIO 595446000.00                418523015.98      384930249.37          0.919735
+                Office of Water Systems         OWS 297723000.00                203165213.16      190826633.76          0.939268
+Office of Management and Administration         OMA 291595000.00                210395365.49      199604608.08          0.948712
 ==============================================================================================================
 Q: Which budget lines have more than $1M unobligated and expire in the next 90 days?
-Genie: You want to see budget lines that currently have more than $1 million unobligated balance and will expire within the next 90 days.
-Text: There are **26** current budget lines with more than **$1.0M** unobligated and expiring within the next **90 days**; all shown here expire on **2026-09-30** in **61 days**. Examples include:
-- **State Energy Resilience Grants** (OGM-GA-01-FY2026): **$41.0M** unobligated, **49.8%** obligated
-- **Infrastructure Workforce Grants** (OWD-GA-01-FY2026): **$38.7M** unobligated, **41.2%** obligated
-- **Tribal and Rural Water Grants** (OWS-GA-01-FY2026): **$29.2M** unobligated, **39.0%** obligated
-- **Financial System Modernization** (OCIO-PCI-01-FY2024): **$28.0M** unobligated, **72.6%** obligated
-- **Highway Safety Improvement Grants** (OTS-GA-01-FY2026): **$17.6M** unobligated, **16.7%** obligated
-
-Across these 26 lines, unobligated balances range from **$1.5M** to **$41.0M**, with the largest balances concentrated in several grant-funded lines.
+Genie: You're looking for budget lines that have an unobligated balance greater than $1 million and are set to expire within the next 90 days. The results include details like the budget line ID, program name, office code and name, treasury account symbol, expiration date, days until expiration, unobligated and uncommitted balances, and the obligation rate, all filtered to only include currently available funds.
+Text: Examples include:
+- **OGM-GA-01-FY2026** — **State Energy Resilience Grants** (Office of Grid Modernization): **$41.0M** unobligated, expires in **61 days** on **2026-09-30**.
+- **OWD-GA-01-FY2026** — **Infrastructure Workforce Grants** (Office of Workforce Development): **$38.7M** unobligated, expires in **61 days** on **2026-09-30**.
+- **OWS-GA-01-FY2026** — **Tribal and Rural Water Grants** (Office of Water Systems): **$29.2M** unobligated, expires in **61 days** on **2026-09-30**.
+- **OCIO-PCI-01-FY2024** — **Financial System Modernization** (Office of the Chief Information Officer): **$28.0M** unobligated, expires in **61 days** on **2026-09-30**.
+- **OTS-GA-01-FY2026** — **Highway Safety Improvement Grants** (Office of Transportation Safety): **$17.6M** unobligated, expires in **61 days** on **2026-09-30**.
 SQL:
-SELECT line_id, ppa_name, office_code, tas, expiration_date, days_to_expiration,
-       ROUND(try_divide(unobligated_balance,1e6), 1) AS unobligated_m, ROUND(try_divide(uncommitted_balance,1e6), 1) AS uncommitted_m,
-       ROUND(100 * obligation_rate, 1) AS obligation_rate_pct
-FROM rachopra_catalog.fe_bar.gold_budget_execution
-WHERE fund_status = 'Current' AND days_to_expiration <= 90 AND unobligated_balance > 1000000
-ORDER BY unobligated_balance DESC
-           line_id                          ppa_name office_code                tas expiration_date days_to_expiration unobligated_m uncommitted_m obligation_rate_pct
-  OGM-GA-01-FY2026    State Energy Resilience Grants         OGM      999-2026-0600      2026-09-30                 61          41.0          -4.3                49.8
-  OWD-GA-01-FY2026   Infrastructure Workforce Grants         OWD      999-2026-0600      2026-09-30                 61          38.7           5.3                41.2
-  OWS-GA-01-FY2026     Tribal and Rural Water Grants         OWS      999-2026-0600      2026-09-30                 61          29.2           0.4                39.0
-OCIO-PCI-0
+SELECT
+  `line_id`,
+  `ppa_name`,
+  `office_code`,
+  `office_name`,
+  `tas`,
+  `expiration_date`,
+  `days_to_expiration`,
+  `unobligated_balance`,
+  `uncommitted_balance`,
+  `obligation_rate`
+FROM `rachopra_catalog`.`fe_bar`.`gold_budget_execution`
+WHERE `fund_status` = 'Current'
+  AND `days_to_expiration` IS NOT NULL
+  AND `days_to_expiration` <= 90
+  AND `unobligated_balance` IS NOT NULL
+  AND `unobligated_balance` > 1000000
+ORDER BY `unobligated_balance` DESC
+           line_id                          ppa_name office_code                             office_name                tas expiration_date days_to_expiration unobligated_balance uncommitted_balance obligation_rate
+  OGM-GA-01-FY2026    State Energy Re
 ```
 
 ```python
@@ -317,11 +337,11 @@ display(spark.table(f"{fq}.genie_evaluation_runs").orderBy("asked_at", ascending
 
 | question | status | row_count | seconds |
 |---|---|---|---|
-| What is the agency's overall obligation rate and burn rate versus plan for current funds? | COMPLETED | 1 | 33.1 |
-| Show the critical and high severity financial risk alerts with the amount at risk | COMPLETED | 85 | 20.7 |
-| Which budget lines have more than $1M unobligated and expire in the next 90 days? | COMPLETED | 26 | 20.7 |
-| What is the total projected lapse by office according to the lapse-risk forecast? | COMPLETED | 6 | 16.7 |
-| What is the median procurement administrative lead time by acquisition type? | COMPLETED | 6 | 16.6 |
-| Which program offices are furthest behind their spend plan? | COMPLETED | 6 | 20.7 |
+| What is the agency's overall obligation rate and burn rate versus plan for current funds? | COMPLETED | 1 | 20.9 |
+| Show the critical and high severity financial risk alerts with the amount at risk | COMPLETED | 85 | 16.7 |
+| Which budget lines have more than $1M unobligated and expire in the next 90 days? | COMPLETED | 26 | 16.6 |
+| What is the total projected lapse by office according to the lapse-risk forecast? | COMPLETED | 6 | 16.6 |
+| What is the median procurement administrative lead time by acquisition type? | COMPLETED | 6 | 16.8 |
+| Which program offices are furthest behind their spend plan? | COMPLETED | 6 | 23.4 |
 | Which open procurement requests will miss their fund expiration date, and how much money is involved? | COMPLETED | 10 | 20.8 |
 | How did the Office of Transportation Safety's obligations compare to plan by fiscal quarter this year? | COMPLETED | 4 | 24.9 |

@@ -1,6 +1,6 @@
 # Unity Catalog column documentation on gold_budget_execution
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT column_name, data_type, comment FROM rachopra_catalog.information_schema.columns
@@ -26,6 +26,7 @@ WHERE table_schema = 'fe_bar' AND table_name = 'gold_budget_execution' AND comme
 | obligated_to_date | DECIMAL | Net obligations recorded through the reporting date, after deobligations ($) |
 | invoiced_to_date | DECIMAL | Invoices and grant drawdowns received against the line, excluding rejected ($) |
 | expended_to_date | DECIMAL | Payments disbursed against the line through the reporting date ($) |
+| reforecast_obligations_remaining | DECIMAL | Obligations still planned after the reporting date in the office's latest re-forecast ($) |
 | spend_plan_age_days | INT | Days since the office last revised its spend plan |
 | unobligated_balance | DECIMAL | Remaining balance: total budget minus obligations ($) |
 | uncommitted_balance | DECIMAL | Total budget minus obligations minus open commitments ($) |

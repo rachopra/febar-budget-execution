@@ -1,6 +1,6 @@
 # Every table and view in the schema, by medallion layer
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT table_name, table_type, comment
@@ -43,18 +43,23 @@ ORDER BY CASE WHEN table_name LIKE 'bronze%' THEN 1 WHEN table_name LIKE 'silver
 | gold_quarterly_review_briefings | MANAGED | AI-drafted quarterly budget-performance review narrative per program office, grounded in gold_quarterly_review and current risk alerts. |
 | genie_evaluation_runs | MANAGED | Log of benchmark questions asked of the Budget Execution Genie space: generated SQL, result sample and latency. |
 | lb_app_alert_actions_history | MANAGED |  |
+| lb_app_alert_actions_history_1 | MANAGED |  |
+| lb_app_line_notes_history | MANAGED |  |
 | lb_app_procurement_packages_history | MANAGED |  |
+| lb_app_procurement_packages_history_1 | MANAGED |  |
+| lb_app_reprogramming_requests_history | MANAGED |  |
 | lb_app_review_signoffs_history | MANAGED |  |
-| lb_budget_execution | FOREIGN | Database table synced from another UC table |
-| lb_execution_briefings | FOREIGN | Database table synced from another UC table |
-| lb_financial_risk_alerts | FOREIGN | Database table synced from another UC table |
-| lb_lapse_risk_forecast | FOREIGN | Database table synced from another UC table |
-| lb_monthly_execution | FOREIGN | Database table synced from another UC table |
-| lb_office_access_map | FOREIGN | Database table synced from another UC table |
-| lb_office_execution_summary | FOREIGN | Database table synced from another UC table |
-| lb_procurement_package_drafts | FOREIGN | Database table synced from another UC table |
-| lb_procurement_pipeline | FOREIGN | Database table synced from another UC table |
-| lb_quarterly_review_briefings | FOREIGN | Database table synced from another UC table |
+| lb_app_review_signoffs_history_1 | MANAGED |  |
+| lb_budget_execution | FOREIGN |  |
+| lb_execution_briefings | FOREIGN |  |
+| lb_financial_risk_alerts | FOREIGN |  |
+| lb_lapse_risk_forecast | FOREIGN |  |
+| lb_monthly_execution | FOREIGN |  |
+| lb_office_access_map | FOREIGN |  |
+| lb_office_execution_summary | FOREIGN |  |
+| lb_procurement_package_drafts | FOREIGN |  |
+| lb_procurement_pipeline | FOREIGN |  |
+| lb_quarterly_review_briefings | FOREIGN |  |
 | ml_lapse_training_set | MANAGED | Point-in-time lapse-risk training set: features as known at each checkpoint before expiration, label = share of budget authority unobligated at expiration. |
 | mv_budget_execution | METRIC_VIEW | Governed budget-execution KPIs by office, PPA, appropriation and budget fiscal year. |
 | office_access_map | MANAGED | Entitlements driving the office row filter and the payee-PII column mask. |

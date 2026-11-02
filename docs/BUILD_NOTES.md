@@ -21,6 +21,9 @@ than just written.
 | Point-in-time ML features, temporal validation | Lapse is forecast from what was knowable on each checkpoint date, rebuilt from event timestamps. Model selection uses an inner split (FY2023 → FY2024), and FY2025 is held out and never used for selection. |
 | AI outputs are checked, not trusted | Every dollar figure and percentage in a briefing must trace back to a fact the model was given. Package drafts are validated against feasible acquisition types (by historical PALT) and the contracts on the line. |
 | On-behalf-of-user Genie in the app | Genie questions run with the signed-in user's Unity Catalog permissions, so row filters apply per person. |
+| The app is a workflow, not a dashboard | The buyer's outcome is money obligated before it lapses, so the landing page leads with the projected lapse and how much of it actions already cover, and the year-end plan turns forecasts and AI drafts into submitted packages and reprogramming requests. |
+| Recovery counts only actions in flight, capped per line | A submitted package or a pending/approved reprogramming reduces a line's uncovered lapse, never below zero; a plan cannot "recover" more than the ML forecast says is at risk. |
+| Reprogramming only within one TAS, approved by a second Budget Director | Moving funds between PPAs of the same appropriation and period of availability is a reprogramming; across appropriations it needs transfer authority. Both rules, and separation of duties, are enforced in the API rather than the UI. The notification threshold is illustrative and configurable. |
 
 ## Defects that execution caught (and the fix)
 
@@ -69,3 +72,19 @@ than just written.
     value and require a bona fide need of the current period; the batch total fell from $52.3M to $34.9M, all valid.
 13. **Hard-coded scoring loops are slow on serverless.** Per-row, per-feature explanations took 10 minutes. Vectorised
     (12 batch predictions), scoring takes seconds.
+14. **Reprogramming suggestions double-counted money.** The first matcher offered Infrastructure Workforce Grants as a
+    $4.3M donor although packages already submitted from the app covered its entire projected lapse. Donor capacity
+    now subtracts submitted packages and pending reprogramming, and the API applies the same rule when a request is
+    made; suggestions fell from 7 ($7.3M) to 5 ($2.0M).
+15. **A Lakebase CDF config only streams the tables that existed when it was created.** After the reprogramming and
+    line-notes tables were added, `list-cdf-statuses` still showed only the original three, so those writes would
+    never have reached Unity Catalog. There is no update call; notebook 05 now compares the workflow tables in its
+    DDL with the streamed ones and recreates the config when any are missing, then waits until all of them stream.
+    The recreated config does not reuse the existing history tables either: it writes new `lb_app_*_history_1` tables,
+    seeded with a snapshot of every existing row, and the originals stop updating. The Genie space and the SQL
+    evidence now use the newest table of each stream (the Genie space had been pointing at the stale ones). In
+    production, create the config once with the final set of tables, and drop the stale copies after a recreation.
+16. **Pooled Postgres connections die when Lakebase restarts them.** Right after that CDF recreation and synced-table
+    refresh, the first app requests failed with `AdminShutdown: terminating connection due to administrator command`:
+    the pool handed out sessions the server had ended. The pool now validates each connection on checkout
+    (`check=ConnectionPool.check_connection`), so a restart or scale event costs one reconnect instead of a 500.

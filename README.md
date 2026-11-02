@@ -54,10 +54,10 @@ date in this build is **31 July 2026**: early Q4, 61 days before most balances e
 |---|---|---|---|
 | **Lakeflow**: ingest | Spark Declarative Pipeline (`pyspark.pipelines`): 6 Auto Loader bronze tables, 2 append flows normalising the spend-plan templates, AUTO CDC SCD1 + SCD2 over PR-tracker events, 24 data-quality expectations, gold materialized views in SQL | [`src/pipeline/`](src/pipeline) · [`resources/pipeline.yml`](resources/pipeline.yml) | [`evidence/job_run/03_ingest_and_transform.md`](evidence/job_run) · [`evidence/sql/00_pipeline_*`](evidence/sql) |
 | **Unity Catalog**: govern | Office row filter + payee-PII column mask declared on pipeline tables, driven by one entitlements table; governed tags; column documentation; UC metric view `mv_budget_execution`; lineage | [`00_setup_governance.py`](src/notebooks/00_setup_governance.py) · [`02_govern_and_document.py`](src/notebooks/02_govern_and_document.py) | [`evidence/job_run/04_govern_and_document.md`](evidence/job_run) (row filter and mask demonstrated before/after) |
-| **Lakebase**: operational serving | Lakebase Autoscaling project; 10 synced tables (gold → Postgres); `workflow` schema for app writes with least-privilege grants; CDF config streams writes back to UC Delta (`lb_app_*_history`) | [`05_lakebase_operational_serving.py`](src/notebooks/05_lakebase_operational_serving.py) | [`evidence/job_run/07_lakebase_serving.md`](evidence/job_run) · [`evidence/sql/20-23`](evidence/sql) (writes in UC) |
+| **Lakebase**: operational serving | Lakebase Autoscaling project; 10 synced tables (gold → Postgres); `workflow` schema (alert actions, procurement packages, reprogramming requests, line notes, sign-offs) with least-privilege grants; CDF config streams writes back to UC Delta (`lb_app_*_history`) | [`05_lakebase_operational_serving.py`](src/notebooks/05_lakebase_operational_serving.py) | [`evidence/job_run/07_lakebase_serving.md`](evidence/job_run) · [`evidence/sql/20-23`](evidence/sql) (writes in UC) |
 | **ML / GenAI**: make it intelligent | Lapse-risk GBM on point-in-time features, temporal validation vs the spend-plan baseline, registered in UC (`@champion`), per-line explanations. `ai_query` execution briefings, quarterly review narratives and procurement package drafts, each with grounding / validation checks | [`src/ml/`](src/ml) · [`03_train_lapse_risk_model.py`](src/notebooks/03_train_lapse_risk_model.py) · [`04_forecast_and_ai_briefings.py`](src/notebooks/04_forecast_and_ai_briefings.py) | [`evidence/job_run/05_*.md`, `06_*.md`](evidence/job_run) · [`evidence/sql/11-16`](evidence/sql) |
 | **Genie**: natural language | Genie space over gold tables, metric view, forecast and row-filtered PR table; glossary, rules, trusted SQL; benchmark questions run through the Conversation API | [`06_genie_space.py`](src/notebooks/06_genie_space.py) | [`evidence/job_run/08_genie_space.md`](evidence/job_run) (questions, generated SQL, results) |
-| **Databricks App**: surface it | FastAPI + React app on Lakebase: execution dashboard, expiring balances with forecasts and AI briefings, risk alerts with write-back, procurement pipeline, AI package initiation, quarterly sign-off, embedded Genie | [`app/`](app) · [`resources/app.yml`](resources/app.yml) | [`evidence/app/`](evidence/app) (API responses, writes round-tripped to UC) |
+| **Databricks App**: surface it | FastAPI + React workspace on Lakebase: year-end command center, year-end recovery plan (AI packages + same-account reprogramming, submitted as one plan), budget-line explorer and treemap, drag-and-drop alerts board, procurement award timeline, quarterly sign-off, Genie side panel, ⌘K search (see [the app](#the-app)) | [`app/`](app) · [`resources/app.yml`](resources/app.yml) | [`evidence/app/`](evidence/app) (API responses, writes and controls round-tripped to UC) |
 
 Everything is deployed and run with one Databricks Asset Bundle and one job,
 [`febar-budget-execution-e2e`](resources/job.yml):
@@ -101,14 +101,31 @@ All figures below are from the committed end-to-end run (`evidence/`), as of the
 * **Genie** answered all 8 benchmark leadership questions with SQL over the metric view and gold tables
   (`job_run/08_genie_space.md`), and answers in the app on behalf of the signed-in user (`app/README.md`).
 
+### The app
+
+A dark-themed operations workspace for the CFO's office, built so the user acts, not just reads. Every action is a
+transactional write to Lakebase that the CDF config streams to Unity Catalog.
+
+| Page | What the user does |
+|---|---|
+| **Command center** | Lands on a live year-end countdown (61 days, 83% of the fiscal year gone) and the ML-projected lapse, with a bar showing how much is already covered by actions in flight. An **acquisition-window timeline** shows, from historical PALT, that only option exercises and modifications can still award by the 16 September must-award date. Below: obligations vs approved plan with the ML year-end forecast, where every expiring dollar stands (obligated / committed / requested / no action), clickable office cards that scope the whole app, the lines to act on this week, a work queue and a live activity feed. |
+| **Year-end plan** | Every line projected to lapse, each with its validated AI package and any same-account reprogramming match. Ticking actions (or a slider on the amount) updates *projected lapse → in flight → selected → still projected to lapse* live; **Submit plan** sends the packages to acquisition and the reprogramming requests for approval in one step. |
+| **Reprogramming** | Suggests moves from lines projected to lapse to lines short of funds **within the same TAS** (cross-appropriation moves need transfer authority and are refused), flags moves above an illustrative notification threshold, and requires a **second** Budget Director to approve (separation of duties, enforced server-side). |
+| **Budget lines** | Sortable, searchable table and a treemap of unobligated money by office, colored by lapse-risk tier. A line drawer has the AI briefing, forecast drivers, burn curve, open PRs, alerts, on-demand AI package drafting (Claude Sonnet 5.5) and analyst notes. |
+| **Risk alerts** | A triage board (Open → Acknowledged → Assigned → Escalated → Resolved); dragging a card writes the action, and each alert keeps its history. |
+| **Procurement** | An award timeline (Gantt) of open requests on expiring funds against the expiration date, the pipeline by stage, PALT by acquisition type, and package tracking. |
+| **Quarterly review** | Per-office plan vs actual by quarter, the grounded AI narrative, and a CFO sign-off recorded with a comment. |
+| **Genie** | A side panel available everywhere (and from the ⌘K palette); answers run as the signed-in user and are auto-charted when the result is chartable. |
+
 ### Platform behaviour
 
 * Spark Declarative Pipeline full refresh of ~100K raw records across 6 feeds: **~2.5 minutes** on serverless
   (`sql/00_pipeline_update.md`). 24 expectations; every anomaly the generator injected was caught (12 malformed
   contract numbers, 6 PR events without an ID, ~80 duplicate event deliveries removed).
-* App reads from Lakebase return in **40-120 ms** (`app/README.md`). A write in the app (alert assignment, package
-  submission, CFO sign-off) lands in Postgres and is streamed to Unity Catalog Delta by the CDF config
-  (`sql/21-23_*.md`), so analysts and Genie can see what was done.
+* App reads from Lakebase return in **30-130 ms**; the command center, which runs about ten queries, in about 230 ms (`app/README.md`). A write in the app (alert board move, package
+  submission, reprogramming request, line note, CFO sign-off) lands in Postgres and is streamed to Unity Catalog
+  Delta by the CDF config (`sql/21-25_*.md`), so analysts and Genie can see what was done. The evidence also shows
+  the controls refusing a self-approved reprogramming (403) and a cross-appropriation move (400).
 * Unity Catalog policies are declared on the pipeline tables and proven in the run: an OTS-scoped principal sees
   only OTS's procurement requests; payee TIN and bank numbers are masked unless entitled (`job_run/04_govern_and_document.md`).
 

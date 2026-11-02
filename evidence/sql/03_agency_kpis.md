@@ -1,6 +1,6 @@
 # Budget execution dashboard KPIs (current funds) via the UC metric view
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT ROUND(MEASURE(total_budget) / 1e6, 1) AS total_budget_m,

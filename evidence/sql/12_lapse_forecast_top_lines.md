@@ -1,6 +1,6 @@
 # Top projected lapses with model-explained drivers
 
-Executed 2026-10-15 14:26 UTC
+Executed 2026-11-02 18:12 UTC
 
 ```sql
 SELECT line_id, ppa_name, days_to_expiration, ROUND(100 * obligation_rate, 1) AS obligated_pct,
